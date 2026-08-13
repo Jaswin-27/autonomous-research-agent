@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Autonomous Research Agent Dashboard</title>
+  
+  <!-- Libraries for safely rendering Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 2rem; max-width: 900px; margin: auto; }
+    textarea { width: 100%; padding: 1rem; background: #1e293b; border: 1px solid #475569; color: white; border-radius: 8px; font-size: 1rem; }
+    button { padding: 0.75rem 1.5rem; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 1rem; font-size: 1rem; }
+    button:disabled { opacity: 0.5; }
+    .thought { padding: 1rem; margin: 0.5rem 0; border-radius: 6px; background: #1e293b; border-left: 4px solid #64748b; }
+    .thought.planning { border-left-color: #f59e0b; }
+    .thought.executing { border-left-color: #3b82f6; }
+    .thought.reflecting { border-left-color: #8b5cf6; }
+    .thought.correcting { border-left-color: #ef4444; }
+    .thought.synthesizing { border-left-color: #10b981; }
+    .report-card { background: #1e293b; border-radius: 8px; padding: 1.5rem; margin-top: 2rem; border: 1px solid #334155; line-height: 1.6; }
+    .report-card a { color: #60a5fa; text-decoration: none; }
+    .report-card a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Autonomous Research Agent Dashboard</h1>
+  <textarea id="query" rows="3">Analyze the market potential for solid-state batteries in India</textarea>
+  <button id="btn" onclick="runAgent()">Deploy Agent</button>
+  
+  <div id="stream" style="margin-top:2rem;"></div>
+  <div id="reportContainer"></div>
+
+  <script>
+    // Explicit API URL configuration
+    const API_URL = 'http://localhost:8000';
+
+    async function runAgent() {
+      const query = document.getElementById('query').value;
+      const btn = document.getElementById('btn');
+      const streamDiv = document.getElementById('stream');
+      const reportDiv = document.getElementById('reportContainer');
+      
+      btn.disabled = true;
+      streamDiv.innerHTML = '<h3>Live Agent Thinking Process:</h3>';
+      reportDiv.innerHTML = '';
+      
+      try {
+        const response = await fetch(`${API_URL}/api/research/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.replace('data: ', ''));
+              
+              if (data.type === 'report') {
+                // Safely parse Markdown and sanitize to prevent XSS
+                const cleanHtml = DOMPurify.sanitize(marked.parse(data.content));
+                reportDiv.innerHTML = `
+                  <div class="report-card">
+                    <h2>Final Research Artifact</h2>
+                    <div>${cleanHtml}</div>
+                  </div>`;
+              } else if (data.text) {
+                const div = document.createElement('div');
+                div.className = `thought ${data.phase}`;
+                div.innerHTML = `<strong>${data.phase.toUpperCase()}</strong>: ${data.text}`;
+                streamDiv.appendChild(div);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        streamDiv.innerHTML += `<div class="thought correcting">Error: Make sure the FastAPI server is running on port 8000. Details: ${err.message}</div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
